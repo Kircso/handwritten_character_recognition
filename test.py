@@ -1,37 +1,48 @@
 import numpy as np
 import tensorflow as tf
+import tensorflow_datasets as tfds
 import matplotlib.pyplot as plt
+import json
 
-# 1. A betanított modell betöltése
-model = tf.keras.models.load_model("handwritten_model.keras")
-print("Modell sikeresen betöltve a teszteléshez!")
+model = tf.keras.models.load_model("emnist_balanced_model.keras")
+print("Modell betöltve!")
 
-# 2. A teszt adatok betöltése
-mnist = tf.keras.datasets.mnist
-(_, _), (x_test, y_test) = mnist.load_data()
-x_test_normalized = x_test / 255.0
+with open("label_map.json", "r") as f:
+    LABEL_MAP = json.load(f)
+LABEL_MAP = {int(k): v for k, v in LABEL_MAP.items()}
 
-# 3. Válasszunk ki 9 darab véletlenszerű képet a teszthalmazból
-fig, axes = plt.subplots(3, 3, figsize=(8, 8))
+ds_test = tfds.load('emnist/balanced', split='test', as_supervised=True)
+
+def preprocess(image, label):
+    image = tf.image.rot90(image, k=3)
+    image = tf.image.flip_left_right(image)
+    image = tf.cast(image, tf.float32) / 255.0
+    return image, label
+
+test_ds = ds_test.shuffle(10000).map(preprocess).batch(1).take(9)
+
+fig, axes = plt.subplots(3, 3, figsize=(9, 9))
 axes = axes.ravel()
 
-for i in range(9):
-    index = np.random.randint(0, len(x_test))
-    sample_image = x_test_normalized[index]
-    true_label = y_test[index]
+print("Tesztelés folyamatban...")
 
-    # Predikció
-    prediction = model.predict(np.expand_dims(sample_image, axis=0), verbose=0)
-    predicted_label = np.argmax(prediction)
-
-    # Megjelenítés rácsban
-    axes[i].imshow(sample_image, cmap='gray')
+for i, (img, true_label) in enumerate(test_ds):
+    img_np = img.numpy()[0]
+    true_idx = true_label.numpy()[0]
     
-    # Ha eltalálta, zöld, ha nem, piros színű a felirat
-    color = 'green' if true_label == predicted_label else 'red'
-    axes[i].set_title(f"Valódi: {true_label} | Tipp: {predicted_label}", color=color, fontsize=10)
+    pred = model.predict(img, verbose=0)
+    pred_idx = np.argmax(pred)
+    
+    true_char = LABEL_MAP.get(true_idx, "?")
+    pred_char = LABEL_MAP.get(pred_idx, "?")
+    
+    axes[i].imshow(img_np.squeeze(), cmap='gray')
+    
+    color = 'green' if true_idx == pred_idx else 'red'
+    axes[i].set_title(f"Valódi: {true_char}  |  Tipp: {pred_char}", 
+                      color=color, fontsize=11)
     axes[i].axis('off')
 
+plt.suptitle("EMNIST Balanced – Szám + Betű felismerés", fontsize=14)
 plt.tight_layout()
-print("Grafikus ablak megnyitása a rácsos tesztekkel...")
 plt.show()
